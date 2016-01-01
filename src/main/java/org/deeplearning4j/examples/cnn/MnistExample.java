@@ -117,16 +117,19 @@ public class MnistExample {
         new ConvolutionLayerSetup(builder,28,28,1);
 
         MultiLayerConfiguration conf = builder.build();
+        MultiLayerNetwork net = new MultiLayerNetwork(conf);
+        net.init();
+        net.setUpdater(null);   //Workaround for minor bug in 0.4-rc3.8
 
         //Create Spark multi layer network from configuration
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, conf);
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net);
 
         //Train network
         log.info("--- Starting network training ---");
         int nEpochs = 5;
         for( int i=0; i<nEpochs; i++ ){
             //Run learning. Here, we are training with approximately 'batchSize' examples on each executor
-            MultiLayerNetwork net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize);
+            net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize);
             System.out.println("----- Epoch " + i + " complete -----");
 
             //Evaluate (locally)

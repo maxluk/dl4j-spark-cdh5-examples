@@ -12,8 +12,8 @@ import org.deeplearning4j.nn.conf.layers.OutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.nd4j.linalg.io.ClassPathResource;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
-import org.springframework.core.io.ClassPathResource;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,8 +63,12 @@ public class IrisLocal {
                 .backprop(true).pretrain(false)
                 .build();
 
+        MultiLayerNetwork net = new MultiLayerNetwork(conf);
+        net.init();
+        net.setUpdater(null);   //Workaround for a minor bug in 0.4-rc3.8
+
         //Create Spark network
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc,conf);
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc,net);
 
         int nEpochs = 6;
         List<float[]> temp = new ArrayList<>();

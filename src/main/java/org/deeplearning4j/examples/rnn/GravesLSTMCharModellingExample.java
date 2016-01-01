@@ -112,7 +112,11 @@ public class GravesLSTMCharModellingExample {
                 .backpropType(BackpropType.TruncatedBPTT).tBPTTForwardLength(truncatedBPTTLength).tBPTTBackwardLength(truncatedBPTTLength)
                 .build();
 
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, conf);
+        MultiLayerNetwork net = new MultiLayerNetwork(conf);
+        net.init();
+        net.setUpdater(null);   //Workaround for a minor bug in 0.4-rc3.8
+
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net);
 
         //Do training, and then generate and print samples from network
         for (int i = 0; i < numEpochs; i++) {
@@ -123,7 +127,6 @@ public class GravesLSTMCharModellingExample {
             //instead of manually splitting like we do here
             JavaRDD<String>[] stringsSplit = splitStrings(rawStrings, sparkExamplesPerFit);
 
-            MultiLayerNetwork net = null;
             for (JavaRDD<String> stringSplit : stringsSplit) {
                 JavaRDD<DataSet> data = stringSplit.map(new StringToDataSetFn(bcCharToInt));
                 net = sparkNetwork.fitDataSet(data);

@@ -39,10 +39,6 @@ import java.util.*;
  * This example is set up to train on the Complete Works of William Shakespeare, downloaded
  * from Project Gutenberg. Training on other text sources should be relatively easy to implement.
  *
- * *******************************************************************
- * NOTE: THIS EXAMPLE REQUIRES DL4J AND ND4J 0.4-rc3.8 OR ABOVE TO RUN
- * *******************************************************************
- *
  * @author Alex Black
  */
 public class GravesLSTMCharModellingExample {

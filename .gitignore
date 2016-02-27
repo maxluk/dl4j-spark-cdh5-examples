@@ -1,3 +1,21 @@
+target/
+.idea/*
+*.iml
+logs/
+*.ser
+*.log
+*.ipynb_checkpoints
+*.pyc
+graph-tmp/
+
+.DS_Store
+pom.xml.releaseBackup
+
+*.png
+*.bin
+*.releaseBackup
+*.out
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Java template
 *.class

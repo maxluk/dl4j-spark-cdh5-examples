@@ -17,7 +17,10 @@ import org.deeplearning4j.nn.conf.layers.GravesLSTM;
 import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
+import org.deeplearning4j.optimize.api.IterationListener;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.deeplearning4j.ui.UiConnectionInfo;
+import org.deeplearning4j.ui.weights.HistogramIterationListener;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.factory.Nd4j;
@@ -56,6 +59,7 @@ public class GravesLSTMCharModellingExample {
         SparkConf sparkConf = new SparkConf();
         sparkConf.setMaster("local[" + nCores + "]");
         sparkConf.setAppName("LSTM_Char");
+        sparkConf.set("spark.io.compression.codec","lzf");
         sparkConf.set(SparkDl4jMultiLayer.AVERAGE_EACH_ITERATION, String.valueOf(true));
 
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
@@ -113,6 +117,14 @@ public class GravesLSTMCharModellingExample {
         net.setUpdater(null);   //Workaround for a minor bug in 0.4-rc3.8
 
         SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net);
+
+        UiConnectionInfo connectionInfo = new UiConnectionInfo.Builder()
+                .setAddress("localhost")
+                .setPort(8080)
+                .setPath("deeplearning4j-ui-servlet")
+                .build();
+
+        sparkNetwork.setListeners(Arrays.asList((IterationListener) new HistogramIterationListener(connectionInfo, 1)));
 
         //Do training, and then generate and print samples from network
         for (int i = 0; i < numEpochs; i++) {

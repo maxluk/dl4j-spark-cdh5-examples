@@ -129,7 +129,7 @@ public class MnistExample {
         int nEpochs = 5;
         for( int i=0; i<nEpochs; i++ ){
             //Run learning. Here, we are training with approximately 'batchSize' examples on each executor
-            //net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize);
+            net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize);
             System.out.println("----- Epoch " + i + " complete -----");
 
             //Evaluate (locally)

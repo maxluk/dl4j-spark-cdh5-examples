@@ -1,6 +1,8 @@
 package org.deeplearning4j.examples.mlp;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.canova.api.records.reader.RecordReader;
 import org.canova.api.records.reader.impl.CSVRecordReader;
@@ -8,13 +10,17 @@ import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.layers.DenseLayer;
+import org.deeplearning4j.nn.conf.layers.FeedForwardLayer;
 import org.deeplearning4j.nn.conf.layers.OutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
+import org.deeplearning4j.spark.canova.RecordReaderFunction;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.io.ClassPathResource;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,6 +40,12 @@ public class IrisLocal {
         sparkConf.setAppName("Iris");
 
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
+
+        //Load the data from local (driver) classpath into a JavaRDD<DataSet>, for training
+        JavaRDD<String> irisDataLines = getIrisDataLines(sc);
+        int labelIndex = 4;
+        int numOutputClasses = 3;
+        JavaRDD<DataSet> trainingData = irisDataLines.map(new RecordReaderFunction(recordReader, labelIndex, numOutputClasses));
 
 
         //Create and initialize multi-layer network
@@ -73,7 +85,7 @@ public class IrisLocal {
         int nEpochs = 6;
         List<float[]> temp = new ArrayList<>();
         for( int i=0; i<nEpochs; i++ ){
-            MultiLayerNetwork network = sparkNetwork.fit(localDataPath, 4, recordReader);
+            MultiLayerNetwork network = sparkNetwork.fitDataSet(trainingData);
             temp.add(network.params().data().asFloat().clone());
         }
 
@@ -81,6 +93,17 @@ public class IrisLocal {
         for( int i=0; i<temp.size(); i++ ){
             System.out.println(i + "\t " + Arrays.toString(temp.get(i)));
         }
+    }
+
+    //This approach: isn't suitable for large data, but should work ok here for Iris (150 examples)
+    private static JavaRDD<String> getIrisDataLines(JavaSparkContext sc) throws Exception {
+        ClassPathResource classPathResource = new ClassPathResource("iris_shuffled_normalized_csv.txt");
+
+        String irisDataContents = FileUtils.readFileToString(classPathResource.getFile());
+        String[] split = irisDataContents.split("\n");
+        List<String> lines = Arrays.asList(split);
+
+        return sc.parallelize(lines);
     }
 
 }

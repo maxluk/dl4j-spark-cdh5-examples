@@ -30,11 +30,6 @@ import java.util.List;
 public class IrisLocal {
 
     public static void main(String[] args) throws Exception {
-
-        //Set up data. CSVRecordReader converts CSV data into usable format
-        ClassPathResource classPathResource = new ClassPathResource("iris_shuffled_normalized_csv.txt");
-        RecordReader recordReader = new CSVRecordReader(0,",");
-
         SparkConf sparkConf = new SparkConf();
         sparkConf.setMaster("local[*]");
         sparkConf.setAppName("Iris");
@@ -42,6 +37,8 @@ public class IrisLocal {
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
         //Load the data from local (driver) classpath into a JavaRDD<DataSet>, for training
+            //CSVRecordReader converts CSV data (as a String) into usable format for network training
+        RecordReader recordReader = new CSVRecordReader(0,",");
         JavaRDD<String> irisDataLines = getIrisDataLines(sc);
         int labelIndex = 4;
         int numOutputClasses = 3;

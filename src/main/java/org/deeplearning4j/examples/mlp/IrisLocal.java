@@ -1,6 +1,7 @@
 package org.deeplearning4j.examples.mlp;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -32,7 +33,6 @@ public class IrisLocal {
 
         //Set up data. CSVRecordReader converts CSV data into usable format
         ClassPathResource classPathResource = new ClassPathResource("iris_shuffled_normalized_csv.txt");
-        String localDataPath = "file://" + classPathResource.getURI().getPath();
         RecordReader recordReader = new CSVRecordReader(0,",");
 
         SparkConf sparkConf = new SparkConf();
@@ -99,7 +99,7 @@ public class IrisLocal {
     private static JavaRDD<String> getIrisDataLines(JavaSparkContext sc) throws Exception {
         ClassPathResource classPathResource = new ClassPathResource("iris_shuffled_normalized_csv.txt");
 
-        String irisDataContents = FileUtils.readFileToString(classPathResource.getFile());
+        String irisDataContents = IOUtils.toString(classPathResource.getInputStream());
         String[] split = irisDataContents.split("\n");
         List<String> lines = Arrays.asList(split);
 

@@ -91,7 +91,7 @@ public class GravesLSTMCharModellingExample {
                 .seed(12345)
                 .regularization(true)
                 .l2(0.001)
-                .list(3)
+                .list()
                 .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayerSize)
                         .updater(Updater.RMSPROP)
                         .activation("tanh").weightInit(WeightInit.DISTRIBUTION)

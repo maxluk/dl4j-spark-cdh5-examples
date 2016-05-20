@@ -86,7 +86,7 @@ public class MnistExample {
                 .learningRate(0.1)
                 .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                 .updater(Updater.ADAGRAD)
-                .list(6)
+                .list()
                 .layer(0, new ConvolutionLayer.Builder(5, 5)
                         .nIn(nChannels)
                         .stride(1, 1)
@@ -94,7 +94,8 @@ public class MnistExample {
                         .weightInit(WeightInit.XAVIER)
                         .activation("relu")
                         .build())
-                .layer(1, new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX, new int[]{2, 2})
+                .layer(1, new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
+                        .kernelSize(2, 2)
                         .build())
                 .layer(2, new ConvolutionLayer.Builder(5, 5)
                         .nIn(20)
@@ -103,7 +104,8 @@ public class MnistExample {
                         .weightInit(WeightInit.XAVIER)
                         .activation("relu")
                         .build())
-                .layer(3, new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX, new int[]{2, 2})
+                .layer(3, new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
+                        .kernelSize(2, 2)
                         .build())
                 .layer(4, new DenseLayer.Builder().activation("relu")
                         .weightInit(WeightInit.XAVIER)
@@ -129,7 +131,9 @@ public class MnistExample {
         int nEpochs = 5;
         for( int i=0; i<nEpochs; i++ ){
             //Run learning. Here, we are training with approximately 'batchSize' examples on each executor
-            net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize);
+            //By provining the number of cores (executors) as an argument, learning knows how to partition data to get approximately
+            // equal data per executor
+            net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize, nCores);
             System.out.println("----- Epoch " + i + " complete -----");
 
             //Evaluate (locally)

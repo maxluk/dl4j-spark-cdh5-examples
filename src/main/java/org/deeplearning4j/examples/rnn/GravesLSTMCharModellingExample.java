@@ -12,7 +12,6 @@ import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.Updater;
-import org.deeplearning4j.nn.conf.distribution.UniformDistribution;
 import org.deeplearning4j.nn.conf.layers.GravesLSTM;
 import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
@@ -44,52 +43,29 @@ import java.util.*;
  */
 public class GravesLSTMCharModellingExample {
 
-    private static Map<Integer, Character> INT_TO_CHAR = getIntToChar();
-    private static Map<Character, Integer> CHAR_TO_INT = getCharToInt();
-    private static final int N_CHARS = INT_TO_CHAR.size();
+    public static Map<Integer, Character> INT_TO_CHAR = getIntToChar();
+    public static Map<Character, Integer> CHAR_TO_INT = getCharToInt();
+    public static final int N_CHARS = INT_TO_CHAR.size();
+    public static int nIn = CHAR_TO_INT.size();
+    public static int nOut = CHAR_TO_INT.size();
+
+    //First: Set up network configuration, and some setting specific to this example
+    public static int sequenceLength = 1000;                      //Length of each sequence (used in truncated BPTT)
+    public static int truncatedBPTTLength = 100;                  //Configuration for truncated BPTT. See http://deeplearning4j.org/usingrnns.html for details
+    public static int sampleCharsEveryNAveragings = 10;           //How frequently should we generate samples from the network?
+    public static int lstmLayerSize = 200;                        //Number of units in each GravesLSTM layer
+    public static int numEpochs = 5;                              //Total number of training + sample generation epochs
+    public static int nSamplesToGenerate = 4;                     //Number of samples to generate after each training epoch
+    public static int nCharactersToSample = 300;                  //Length of each sample to generate
+    public static String generationInitialization = null;         //Optional character initialization; a random character is used if null
+    // Above is Used to 'prime' the LSTM with a character sequence to continue/complete.
+    // Initialization characters must all be in CharacterIterator.getMinimalCharacterSet() by default
 
     public static void main(String[] args) throws Exception {
-
-        //First: Set up network configuration, and some setting specific to this example
-
-
-        int sequenceLength = 1000;                      //Length of each sequence (used in truncated BPTT)
-        int truncatedBPTTLength = 100;                  //Configuration for truncated BPTT. See http://deeplearning4j.org/usingrnns.html for details
-        int sampleCharsEveryNAveragings = 10;           //How frequently should we generate samples from the network?
-        int lstmLayerSize = 200;                        //Number of units in each GravesLSTM layer
-        int numEpochs = 5;                              //Total number of training + sample generation epochs
-        int nSamplesToGenerate = 4;                     //Number of samples to generate after each training epoch
-        int nCharactersToSample = 300;                  //Length of each sample to generate
-        String generationInitialization = null;         //Optional character initialization; a random character is used if null
-        // Above is Used to 'prime' the LSTM with a character sequence to continue/complete.
-        // Initialization characters must all be in CharacterIterator.getMinimalCharacterSet() by default
         Random rng = new Random(12345);
 
-        int nIn = CHAR_TO_INT.size();
-        int nOut = CHAR_TO_INT.size();
-
-
         //Set up network configuration:
-        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT).iterations(1)
-                .learningRate(0.1)
-                .rmsDecay(0.95)
-                .seed(12345)
-                .weightInit(WeightInit.XAVIER)
-                .activation("tanh")
-                .updater(Updater.RMSPROP)
-                .regularization(true)
-                .l2(0.001)
-                .list()
-                .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayerSize).build())
-                .layer(1, new GravesLSTM.Builder().nIn(lstmLayerSize).nOut(lstmLayerSize).build())
-                .layer(2, new RnnOutputLayer.Builder(LossFunction.MCXENT).activation("softmax")        //MCXENT + softmax for classification
-                        .nIn(lstmLayerSize).nOut(nOut).build())
-                .pretrain(false).backprop(true)
-                .backpropType(BackpropType.TruncatedBPTT).tBPTTForwardLength(truncatedBPTTLength).tBPTTBackwardLength(truncatedBPTTLength)
-                .build();
-
-        MultiLayerNetwork net = new MultiLayerNetwork(conf);
+        MultiLayerNetwork net = new MultiLayerNetwork(getConfiguration());
         net.init();
 
 
@@ -154,11 +130,32 @@ public class GravesLSTMCharModellingExample {
                     }
                 }
             }
-
-
         }
 
         System.out.println("\n\nExample complete");
+    }
+
+    public static MultiLayerConfiguration getConfiguration(){
+        //Set up network configuration:
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT).iterations(1)
+                .learningRate(0.1)
+                .rmsDecay(0.95)
+                .seed(12345)
+                .weightInit(WeightInit.XAVIER)
+                .activation("tanh")
+                .updater(Updater.RMSPROP)
+                .regularization(true)
+                .l2(0.001)
+                .list()
+                .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayerSize).build())
+                .layer(1, new GravesLSTM.Builder().nIn(lstmLayerSize).nOut(lstmLayerSize).build())
+                .layer(2, new RnnOutputLayer.Builder(LossFunction.MCXENT).activation("softmax")        //MCXENT + softmax for classification
+                        .nIn(lstmLayerSize).nOut(nOut).build())
+                .pretrain(false).backprop(true)
+                .backpropType(BackpropType.TruncatedBPTT).tBPTTForwardLength(truncatedBPTTLength).tBPTTBackwardLength(truncatedBPTTLength)
+                .build();
+        return conf;
     }
 
     private static JavaRDD<String>[] splitStrings(JavaRDD<String> in, int examplesPerSplit) {
@@ -175,10 +172,10 @@ public class GravesLSTMCharModellingExample {
     }
 
 
-    private static class StringToDataSetFn implements Function<String, DataSet> {
+    public static class StringToDataSetFn implements Function<String, DataSet> {
         private final Broadcast<Map<Character, Integer>> ctiBroadcast;
 
-        private StringToDataSetFn(Broadcast<Map<Character, Integer>> characterIntegerMap) {
+        public StringToDataSetFn(Broadcast<Map<Character, Integer>> characterIntegerMap) {
             this.ctiBroadcast = characterIntegerMap;
         }
 
@@ -204,7 +201,7 @@ public class GravesLSTMCharModellingExample {
         }
     }
 
-    private static List<String> getShakespeareAsList(int sequenceLength) throws IOException {
+    public static List<String> getShakespeareAsList(int sequenceLength) throws IOException {
         //The Complete Works of William Shakespeare
         //5.3MB file in UTF-8 Encoding, ~5.4 million characters
         //https://www.gutenberg.org/ebooks/100

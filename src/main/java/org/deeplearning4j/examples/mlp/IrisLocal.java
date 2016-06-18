@@ -28,7 +28,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Very simple example running Iris on Spark (local) using local data input */
+/** Very simple example running Iris on Spark (local) using local data input
+ *
+ * @author Alex Black
+ */
 public class IrisLocal {
 
     public static void main(String[] args) throws Exception {

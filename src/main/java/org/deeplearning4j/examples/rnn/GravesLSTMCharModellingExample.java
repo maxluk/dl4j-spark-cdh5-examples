@@ -18,6 +18,7 @@ import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.factory.Nd4j;
@@ -48,40 +49,25 @@ public class GravesLSTMCharModellingExample {
     private static final int N_CHARS = INT_TO_CHAR.size();
 
     public static void main(String[] args) throws Exception {
-        //Number of CPU cores to use for training
-        int nCores = 6;
-        //Length of each sequence (used in truncated BPTT)
-        int sequenceLength = 1000;
 
-        SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[" + nCores + "]");
-        sparkConf.setAppName("LSTM_Char");
-        sparkConf.set(SparkDl4jMultiLayer.AVERAGE_EACH_ITERATION, String.valueOf(true));
-
-        JavaSparkContext sc = new JavaSparkContext(sparkConf);
-
-        //Get data. File -> String -> List<String> (split) -> JavaRDD<String> -> JavaRDD<DataSet>
-        List<String> list = getShakespeareAsList(sequenceLength);
-        JavaRDD<String> rawStrings = sc.parallelize(list);
-        rawStrings.persist(StorageLevel.MEMORY_ONLY());
-
-        final Broadcast<Map<Character, Integer>> bcCharToInt = sc.broadcast(CHAR_TO_INT);
+        //First: Set up network configuration, and some setting specific to this example
 
 
-        int lstmLayerSize = 200;                    //Number of units in each GravesLSTM layer
-        int miniBatchSize = 32;                        //Size of mini batch to use when  training
-        int numEpochs = 5;                            //Total number of training + sample generation epochs
-        int nSamplesToGenerate = 4;                    //Number of samples to generate after each training epoch
-        int nCharactersToSample = 300;                //Length of each sample to generate
-        String generationInitialization = null;        //Optional character initialization; a random character is used if null
+        int sequenceLength = 1000;                      //Length of each sequence (used in truncated BPTT)
+        int truncatedBPTTLength = 100;                  //Configuration for truncated BPTT. See http://deeplearning4j.org/usingrnns.html for details
+        int sampleCharsEveryNAveragings = 10;           //How frequently should we generate samples from the network?
+        int lstmLayerSize = 200;                        //Number of units in each GravesLSTM layer
+        int numEpochs = 5;                              //Total number of training + sample generation epochs
+        int nSamplesToGenerate = 4;                     //Number of samples to generate after each training epoch
+        int nCharactersToSample = 300;                  //Length of each sample to generate
+        String generationInitialization = null;         //Optional character initialization; a random character is used if null
         // Above is Used to 'prime' the LSTM with a character sequence to continue/complete.
         // Initialization characters must all be in CharacterIterator.getMinimalCharacterSet() by default
         Random rng = new Random(12345);
 
         int nIn = CHAR_TO_INT.size();
         int nOut = CHAR_TO_INT.size();
-        int truncatedBPTTLength = 100;
-        int sparkExamplesPerFit = 32 * nCores;
+
 
         //Set up network configuration:
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
@@ -89,56 +75,87 @@ public class GravesLSTMCharModellingExample {
                 .learningRate(0.1)
                 .rmsDecay(0.95)
                 .seed(12345)
+                .weightInit(WeightInit.XAVIER)
+                .activation("tanh")
+                .updater(Updater.RMSPROP)
                 .regularization(true)
                 .l2(0.001)
                 .list()
-                .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayerSize)
-                        .updater(Updater.RMSPROP)
-                        .activation("tanh").weightInit(WeightInit.DISTRIBUTION)
-                        .dist(new UniformDistribution(-0.08, 0.08)).build())
-                .layer(1, new GravesLSTM.Builder().nIn(lstmLayerSize).nOut(lstmLayerSize)
-                        .updater(Updater.RMSPROP)
-                        .activation("tanh").weightInit(WeightInit.DISTRIBUTION)
-                        .dist(new UniformDistribution(-0.08, 0.08)).build())
+                .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayerSize).build())
+                .layer(1, new GravesLSTM.Builder().nIn(lstmLayerSize).nOut(lstmLayerSize).build())
                 .layer(2, new RnnOutputLayer.Builder(LossFunction.MCXENT).activation("softmax")        //MCXENT + softmax for classification
-                        .updater(Updater.RMSPROP)
-                        .nIn(lstmLayerSize).nOut(nOut).weightInit(WeightInit.DISTRIBUTION)
-                        .dist(new UniformDistribution(-0.08, 0.08)).build())
+                        .nIn(lstmLayerSize).nOut(nOut).build())
                 .pretrain(false).backprop(true)
                 .backpropType(BackpropType.TruncatedBPTT).tBPTTForwardLength(truncatedBPTTLength).tBPTTBackwardLength(truncatedBPTTLength)
                 .build();
 
         MultiLayerNetwork net = new MultiLayerNetwork(conf);
         net.init();
-        net.setUpdater(null);   //Workaround for a minor bug in 0.4-rc3.8
 
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net);
+
+        //-------------------------------------------------------------
+        //Second: Set up the Spark-specific configuration
+        int examplesPerWorker = 8;      //How many examples should be used per worker (executor) when fitting?
+        /* How frequently should we average parameters (in number of minibatches)?
+        Averaging too frequently can be slow (synchronization + serialization costs) whereas too infrequently can result
+        learning difficulties (i.e., network may not converge) */
+        int averagingFrequency = 3;
+        int nWorkers = 6;   //Number of workers (executors)
+
+        //Set up Spark configuration and context
+        SparkConf sparkConf = new SparkConf();
+        sparkConf.setMaster("local[" + nWorkers + "]");
+        sparkConf.setAppName("LSTM_Char");
+        JavaSparkContext sc = new JavaSparkContext(sparkConf);
+
+        //Get data. For the sake of this example, we are doing the following operations:
+        // File -> String -> List<String> (split into length "sequenceLength" characters) -> JavaRDD<String> -> JavaRDD<DataSet>
+        List<String> list = getShakespeareAsList(sequenceLength);
+        JavaRDD<String> rawStrings = sc.parallelize(list);
+        rawStrings.persist(StorageLevel.MEMORY_ONLY());
+        final Broadcast<Map<Character, Integer>> bcCharToInt = sc.broadcast(CHAR_TO_INT);
+
+        //Set up the TrainingMaster. The TrainingMaster controls how learning is actually executed on Spark
+        //Here, we are using standard parameter averaging
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(nWorkers)
+                .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
+                .saveUpdater(true)
+                .averagingFrequency(averagingFrequency)
+                .batchSizePerWorker(examplesPerWorker)
+                .build();
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net, tm);
 
         //Do training, and then generate and print samples from network
         for (int i = 0; i < numEpochs; i++) {
-            //Split the Strings and convert to data
-            //Note that we could of course convert the full data set at once (and re-use it) however this takes
-            //much more memory than the approach used here.
-            //In that case, we could use the SparkDl4jMultiLayer.fitDataSet(JavaRDD<DataSet>, int examplesPerFit) method
-            //instead of manually splitting like we do here
-            JavaRDD<String>[] stringsSplit = splitStrings(rawStrings, sparkExamplesPerFit);
 
+            //Split the Strings and convert to data
+            //Note that the usual approach would be to use SparkDl4jMultiLayer.fit(JavaRDD<DataSet>) method instead of manually
+            // splitting like we do here, but we want to periodically generate samples from the network (which we can't do if we
+            // simply call fit(JavaRDD<DataSet>)
+            JavaRDD<String>[] stringsSplit = splitStrings(rawStrings, nWorkers * examplesPerWorker * averagingFrequency);
+
+            int iter = 0;
             for (JavaRDD<String> stringSplit : stringsSplit) {
                 JavaRDD<DataSet> data = stringSplit.map(new StringToDataSetFn(bcCharToInt));
-                net = sparkNetwork.fitDataSet(data);
+                net = sparkNetwork.fit(data);
+
+                System.out.println("Score after averaging #" + iter++ + ": " + sparkNetwork.getScore());
+
+                if(iter % sampleCharsEveryNAveragings == 0){
+                    System.out.println("--------------------");
+                    System.out.println("Sampling characters from network given initialization \"" +
+                            (generationInitialization == null ? "" : generationInitialization) + "\"");
+                    String[] samples = sampleCharactersFromNetwork(generationInitialization, net, rng, INT_TO_CHAR,
+                            nCharactersToSample, nSamplesToGenerate);
+                    for (int j = 0; j < samples.length; j++) {
+                        System.out.println("----- Sample " + j + " -----");
+                        System.out.println(samples[j]);
+                        System.out.println();
+                    }
+                }
             }
 
-            System.out.println("--------------------");
-            System.out.println("Completed epoch " + i);
-            System.out.println("Sampling characters from network given initialization \"" +
-                    (generationInitialization == null ? "" : generationInitialization) + "\"");
-            String[] samples = sampleCharactersFromNetwork(generationInitialization, net, rng, INT_TO_CHAR,
-                    nCharactersToSample, nSamplesToGenerate);
-            for (int j = 0; j < samples.length; j++) {
-                System.out.println("----- Sample " + j + " -----");
-                System.out.println(samples[j]);
-                System.out.println();
-            }
+
         }
 
         System.out.println("\n\nExample complete");

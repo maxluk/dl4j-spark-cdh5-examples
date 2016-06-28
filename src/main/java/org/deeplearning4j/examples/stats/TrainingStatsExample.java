@@ -22,6 +22,8 @@ import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.spark.api.stats.SparkTrainingStats;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
 import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
+import org.deeplearning4j.spark.stats.EventStats;
+import org.deeplearning4j.spark.stats.StatsUtils;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
@@ -87,9 +89,22 @@ public class TrainingStatsExample {
         SparkTrainingStats stats = sparkNetwork.getSparkTrainingStats();
         Set<String> statsKeySet = stats.getKeySet();    //Keys for the types of statistics
 
+        //Demo purposes: get one
+        String first = statsKeySet.iterator().next();
+        List<EventStats> firstStatEvents = stats.getValue(first);
+        EventStats es = firstStatEvents.get(0);
+        System.out.println("Machine ID\t" + es.getMachineID());
+        System.out.println("JVM ID\t" + es.getJvmID());
+        System.out.println("Thread ID\t" + es.getThreadID());
+        System.out.println("Start time ms\t" + es.getStartTime());
+        System.out.println("Duration ms\t" + es.getDurationMs());
+
+
         //Print out statistics as a String representation
         System.out.println(stats.statsAsString());
 
+        //Export a HTML file containing charts of the various stats calculated during training
+        StatsUtils.exportStatsAsHtml(stats, "SparkStats.html",sc);
 
         log.info("****************Example finished********************");
     }

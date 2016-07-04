@@ -76,11 +76,10 @@ public class GravesLSTMCharModellingExample {
         Averaging too frequently can be slow (synchronization + serialization costs) whereas too infrequently can result
         learning difficulties (i.e., network may not converge) */
         int averagingFrequency = 3;
-        int nWorkers = 6;   //Number of workers (executors)
 
         //Set up Spark configuration and context
         SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[" + nWorkers + "]");
+        sparkConf.setMaster("local[*]");
         sparkConf.setAppName("LSTM_Char");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
@@ -93,7 +92,8 @@ public class GravesLSTMCharModellingExample {
 
         //Set up the TrainingMaster. The TrainingMaster controls how learning is actually executed on Spark
         //Here, we are using standard parameter averaging
-        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(nWorkers)
+        int examplesPerDataSetObject = 1;
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
                 .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
                 .saveUpdater(true)
                 .averagingFrequency(averagingFrequency)
@@ -108,7 +108,7 @@ public class GravesLSTMCharModellingExample {
             //Note that the usual approach would be to use SparkDl4jMultiLayer.fit(JavaRDD<DataSet>) method instead of manually
             // splitting like we do here, but we want to periodically generate samples from the network (which we can't do if we
             // simply call fit(JavaRDD<DataSet>)
-            JavaRDD<String>[] stringsSplit = splitStrings(rawStrings, nWorkers * examplesPerWorker * averagingFrequency);
+            JavaRDD<String>[] stringsSplit = splitStrings(rawStrings, sc.defaultParallelism() * examplesPerWorker * averagingFrequency);
 
             int iter = 0;
             for (JavaRDD<String> stringSplit : stringsSplit) {

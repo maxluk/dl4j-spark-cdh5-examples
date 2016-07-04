@@ -19,6 +19,7 @@ import org.deeplearning4j.nn.conf.layers.SubsamplingLayer;
 import org.deeplearning4j.nn.conf.layers.setup.ConvolutionLayerSetup;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
+import org.deeplearning4j.spark.api.Repartition;
 import org.deeplearning4j.spark.api.stats.SparkTrainingStats;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
 import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
@@ -52,7 +53,7 @@ public class TrainingStatsExample {
         //Set up the Spark-specific configuration
         int examplesPerWorker = 8;
         int averagingFrequency = 3;
-        int nWorkers = 8;
+        int nWorkers = 6;
 
         //Set up Spark configuration and context
         SparkConf sparkConf = new SparkConf();
@@ -69,8 +70,10 @@ public class TrainingStatsExample {
 
         //Set up the TrainingMaster. The TrainingMaster controls how learning is actually executed on Spark
         //Here, we are using standard parameter averaging
-        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(nWorkers)
-                .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
+        int examplesPerDataSetObject = 1;
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
+                .repartionData(Repartition.NumPartitionsWorkersDiffers)
+                .workerPrefetchNumBatches(0)    //Don't asynchronously prefetch batches
                 .saveUpdater(true)
                 .averagingFrequency(averagingFrequency)
                 .batchSizePerWorker(examplesPerWorker)
@@ -88,8 +91,12 @@ public class TrainingStatsExample {
         //Get the statistics:
         SparkTrainingStats stats = sparkNetwork.getSparkTrainingStats();
         Set<String> statsKeySet = stats.getKeySet();    //Keys for the types of statistics
+        System.out.println("--- Collected Statistics ---");
+        for(String s : statsKeySet){
+            System.out.println(s);
+        }
 
-        //Demo purposes: get one
+        //Demo purposes: get one statistic
         String first = statsKeySet.iterator().next();
         List<EventStats> firstStatEvents = stats.getValue(first);
         EventStats es = firstStatEvents.get(0);

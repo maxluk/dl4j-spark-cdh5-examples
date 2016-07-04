@@ -39,20 +39,21 @@ public class MnistExample {
     public static void main(String[] args) throws Exception {
 
         //Create spark context, and load data into memory
-        int nWorkers = 6; //Number of CPU cores to use for training
         SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[" + nWorkers + "]");
+        sparkConf.setMaster("local[*]");
         sparkConf.setAppName("MNIST");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
-        DataSetIterator mnistTrain = new MnistDataSetIterator(1, true, 12345);
-        DataSetIterator mnistTest = new MnistDataSetIterator(1, false, 12345);
-        List<DataSet> trainData = new ArrayList<>(60000);
-        List<DataSet> testData = new ArrayList<>(10000);
+        int examplesPerDataSetObject = 32;
+        DataSetIterator mnistTrain = new MnistDataSetIterator(32, true, 12345);
+        DataSetIterator mnistTest = new MnistDataSetIterator(32, false, 12345);
+        List<DataSet> trainData = new ArrayList<>();
+        List<DataSet> testData = new ArrayList<>();
         while(mnistTrain.hasNext()) trainData.add(mnistTrain.next());
         Collections.shuffle(trainData,new Random(12345));
         while(mnistTest.hasNext()) testData.add(mnistTest.next());
 
+        //Get training data. Note that using parallelize isn't recommended for real problems
         JavaRDD<DataSet> train = sc.parallelize(trainData);
         JavaRDD<DataSet> test = sc.parallelize(testData);
 
@@ -109,12 +110,11 @@ public class MnistExample {
 
 
         //Create Spark multi layer network from configuration
-
-        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(nWorkers)
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
                 .workerPrefetchNumBatches(0)
                 .saveUpdater(true)
-                .averagingFrequency(5)
-                .batchSizePerWorker(32)
+                .averagingFrequency(5)                            //Do 5 minibatch fit operations per worker, then average and redistribute parameters
+                .batchSizePerWorker(examplesPerDataSetObject)     //Number of examples that each worker uses per fit operation
                 .build();
 
         SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net, tm);
@@ -123,9 +123,6 @@ public class MnistExample {
         log.info("--- Starting network training ---");
         int nEpochs = 5;
         for( int i=0; i<nEpochs; i++ ){
-            //Run learning. Here, we are training with approximately 'batchSize' examples on each executor
-            //By provining the number of cores (executors) as an argument, learning knows how to partition data to get approximately
-            // equal data per executor
             sparkNetwork.fit(train);
             System.out.println("----- Epoch " + i + " complete -----");
 

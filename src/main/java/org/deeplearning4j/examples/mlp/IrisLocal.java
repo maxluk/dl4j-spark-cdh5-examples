@@ -35,9 +35,8 @@ import java.util.List;
 public class IrisLocal {
 
     public static void main(String[] args) throws Exception {
-        int nWorkers = 5;
         SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[" + nWorkers + "]");
+        sparkConf.setMaster("local[*]");
         sparkConf.setAppName("Iris");
 
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
@@ -81,11 +80,12 @@ public class IrisLocal {
         //Second: Set up the Spark training.
         //Set up the TrainingMaster. The TrainingMaster controls how learning is actually executed on Spark
         //Here, we are using standard parameter averaging
-        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(nWorkers)
+        int examplesPerDataSetObject = 1;
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
                 .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
                 .saveUpdater(true)
                 .averagingFrequency(1)  //See comments on averaging frequency in LSTM example. Averaging every 1 iteration is inefficient in practical problems
-                .batchSizePerWorker(30)
+                .batchSizePerWorker(8)  //Number of examples that each worker gets, per fit operation
                 .build();
         SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc,net,tm);
 

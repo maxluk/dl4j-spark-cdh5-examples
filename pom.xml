@@ -20,7 +20,7 @@
         <scala.version>2.11.6</scala.version>
         <scala.binary.version>2.11</scala.binary.version>
         <spark.version>1.5.0</spark.version>
-
+        <jcommander.version>1.27</jcommander.version>
     </properties>
 
     <distributionManagement>
@@ -152,7 +152,13 @@
                     <artifactId>servlet-api</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
 
+
+        <dependency>
+            <groupId>com.beust</groupId>
+            <artifactId>jcommander</artifactId>
+            <version>${jcommander.version}</version>
         </dependency>
     </dependencies>
 </project>

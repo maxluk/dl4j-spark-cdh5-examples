@@ -18,6 +18,7 @@ import org.deeplearning4j.nn.conf.layers.setup.ConvolutionLayerSetup;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
@@ -37,47 +38,32 @@ public class MnistExample {
 
     public static void main(String[] args) throws Exception {
 
-        //Create spark context
-        int nCores = 6; //Number of CPU cores to use for training
+        //Create spark context, and load data into memory
         SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[" + nCores + "]");
+        sparkConf.setMaster("local[*]");
         sparkConf.setAppName("MNIST");
-        sparkConf.set(SparkDl4jMultiLayer.AVERAGE_EACH_ITERATION, String.valueOf(true));
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
+        int examplesPerDataSetObject = 32;
+        DataSetIterator mnistTrain = new MnistDataSetIterator(32, true, 12345);
+        DataSetIterator mnistTest = new MnistDataSetIterator(32, false, 12345);
+        List<DataSet> trainData = new ArrayList<>();
+        List<DataSet> testData = new ArrayList<>();
+        while(mnistTrain.hasNext()) trainData.add(mnistTrain.next());
+        Collections.shuffle(trainData,new Random(12345));
+        while(mnistTest.hasNext()) testData.add(mnistTest.next());
 
+        //Get training data. Note that using parallelize isn't recommended for real problems
+        JavaRDD<DataSet> train = sc.parallelize(trainData);
+        JavaRDD<DataSet> test = sc.parallelize(testData);
+
+
+        //Set up network configuration (as per standard DL4J networks)
         int nChannels = 1;
         int outputNum = 10;
-        int numSamples = 60000;
-        int nTrain = 50000;
-        int nTest = 10000;
-        int batchSize = 50;
         int iterations = 1;
         int seed = 123;
 
-        //Load data into memory
-        log.info("Load data....");
-        DataSetIterator mnistIter = new MnistDataSetIterator(1, numSamples, true);
-        List<DataSet> allData = new ArrayList<>(numSamples);
-        while(mnistIter.hasNext()){
-            allData.add(mnistIter.next());
-        }
-        Collections.shuffle(allData,new Random(12345));
-
-        Iterator<DataSet> iter = allData.iterator();
-        List<DataSet> train = new ArrayList<>(nTrain);
-        List<DataSet> test = new ArrayList<>(nTest);
-
-        int c = 0;
-        while(iter.hasNext()){
-            if(c++ <= nTrain) train.add(iter.next());
-            else test.add(iter.next());
-        }
-
-        JavaRDD<DataSet> sparkDataTrain = sc.parallelize(train);
-        sparkDataTrain.persist(StorageLevel.MEMORY_ONLY());
-
-        //Set up network configuration
         log.info("Build model....");
         MultiLayerConfiguration.Builder builder = new NeuralNetConfiguration.Builder()
                 .seed(seed)
@@ -121,28 +107,28 @@ public class MnistExample {
         MultiLayerConfiguration conf = builder.build();
         MultiLayerNetwork net = new MultiLayerNetwork(conf);
         net.init();
-        net.setUpdater(null);   //Workaround for minor bug in 0.4-rc3.8
+
 
         //Create Spark multi layer network from configuration
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net);
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
+                .workerPrefetchNumBatches(0)
+                .saveUpdater(true)
+                .averagingFrequency(5)                            //Do 5 minibatch fit operations per worker, then average and redistribute parameters
+                .batchSizePerWorker(examplesPerDataSetObject)     //Number of examples that each worker uses per fit operation
+                .build();
+
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc, net, tm);
 
         //Train network
         log.info("--- Starting network training ---");
         int nEpochs = 5;
         for( int i=0; i<nEpochs; i++ ){
-            //Run learning. Here, we are training with approximately 'batchSize' examples on each executor
-            //By provining the number of cores (executors) as an argument, learning knows how to partition data to get approximately
-            // equal data per executor
-            net = sparkNetwork.fitDataSet(sparkDataTrain, nCores * batchSize, nCores);
+            sparkNetwork.fit(train);
             System.out.println("----- Epoch " + i + " complete -----");
 
-            //Evaluate (locally)
-            Evaluation eval = new Evaluation();
-            for(DataSet ds : test){
-                INDArray output = net.output(ds.getFeatureMatrix());
-                eval.eval(ds.getLabels(),output);
-            }
-            log.info(eval.stats());
+            //Evaluate using Spark:
+            Evaluation evaluation = sparkNetwork.evaluate(test);
+            System.out.println(evaluation.stats());
         }
 
         log.info("****************Example finished********************");

@@ -7,6 +7,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.canova.api.records.reader.RecordReader;
 import org.canova.api.records.reader.impl.CSVRecordReader;
+import org.deeplearning4j.eval.Evaluation;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
@@ -17,6 +18,7 @@ import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.spark.canova.RecordReaderFunction;
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer;
+import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.io.ClassPathResource;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
@@ -26,7 +28,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Very simple example running Iris on Spark (local) using local data input */
+/** Very simple example running Iris on Spark (local) using local data input
+ *
+ * @author Alex Black
+ */
 public class IrisLocal {
 
     public static void main(String[] args) throws Exception {
@@ -39,13 +44,14 @@ public class IrisLocal {
         //Load the data from local (driver) classpath into a JavaRDD<DataSet>, for training
             //CSVRecordReader converts CSV data (as a String) into usable format for network training
         RecordReader recordReader = new CSVRecordReader(0,",");
-        JavaRDD<String> irisDataLines = getIrisDataLines(sc);
+        File f = new File("src/main/resources/iris_shuffled_normalized_csv.txt");
+        JavaRDD<String> irisDataLines = sc.textFile(f.getAbsolutePath());
         int labelIndex = 4;
         int numOutputClasses = 3;
         JavaRDD<DataSet> trainingData = irisDataLines.map(new RecordReaderFunction(recordReader, labelIndex, numOutputClasses));
 
 
-        //Create and initialize multi-layer network
+        //First: Create and initialize multi-layer network. Configuration is the same as in normal (non-distributed) DL4J training
         final int numInputs = 4;
         int outputNum = 3;
         int iterations = 1;
@@ -54,53 +60,44 @@ public class IrisLocal {
                 .seed(12345)
                 .iterations(iterations)
                 .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-                .learningRate(1e-1)
-                .l1(0.01).regularization(true).l2(1e-3)
-                .list(3)
-                .layer(0, new DenseLayer.Builder().nIn(numInputs).nOut(3)
-                        .activation("tanh")
-                        .weightInit(WeightInit.XAVIER)
-                        .build())
-                .layer(1, new DenseLayer.Builder().nIn(3).nOut(2)
-                        .activation("tanh")
-                        .weightInit(WeightInit.XAVIER)
-                        .build())
-                .layer(2, new OutputLayer.Builder(LossFunctions.LossFunction.MCXENT)
-                        .weightInit(WeightInit.XAVIER)
-                        .activation("softmax")
+                .learningRate(0.5)
+                .regularization(true).l2(1e-4)
+                .activation("tanh")
+                .weightInit(WeightInit.XAVIER)
+                .list()
+                .layer(0, new DenseLayer.Builder().nIn(numInputs).nOut(3).build())
+                .layer(1, new DenseLayer.Builder().nIn(3).nOut(2).build())
+                .layer(2, new OutputLayer.Builder(LossFunctions.LossFunction.MCXENT).activation("softmax")
                         .nIn(2).nOut(outputNum).build())
                 .backprop(true).pretrain(false)
                 .build();
 
         MultiLayerNetwork net = new MultiLayerNetwork(conf);
         net.init();
-        net.setUpdater(null);   //Workaround for a minor bug in 0.4-rc3.8
 
-        //Create Spark network
-        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc,net);
 
-        int nEpochs = 6;
-        List<float[]> temp = new ArrayList<>();
+
+        //Second: Set up the Spark training.
+        //Set up the TrainingMaster. The TrainingMaster controls how learning is actually executed on Spark
+        //Here, we are using standard parameter averaging
+        int examplesPerDataSetObject = 1;
+        ParameterAveragingTrainingMaster tm = new ParameterAveragingTrainingMaster.Builder(examplesPerDataSetObject)
+                .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
+                .saveUpdater(true)
+                .averagingFrequency(1)  //See comments on averaging frequency in LSTM example. Averaging every 1 iteration is inefficient in practical problems
+                .batchSizePerWorker(8)  //Number of examples that each worker gets, per fit operation
+                .build();
+        SparkDl4jMultiLayer sparkNetwork = new SparkDl4jMultiLayer(sc,net,tm);
+
+        int nEpochs = 100;
         for( int i=0; i<nEpochs; i++ ){
-            MultiLayerNetwork network = sparkNetwork.fitDataSet(trainingData);
-            temp.add(network.params().data().asFloat().clone());
+            sparkNetwork.fit(trainingData);
         }
 
-        System.out.println("Parameters vs. iteration: ");
-        for( int i=0; i<temp.size(); i++ ){
-            System.out.println(i + "\t " + Arrays.toString(temp.get(i)));
-        }
-    }
 
-    //This approach: isn't suitable for large data, but should work ok here for Iris (150 examples)
-    private static JavaRDD<String> getIrisDataLines(JavaSparkContext sc) throws Exception {
-        ClassPathResource classPathResource = new ClassPathResource("iris_shuffled_normalized_csv.txt");
-
-        String irisDataContents = IOUtils.toString(classPathResource.getInputStream());
-        String[] split = irisDataContents.split("\n");
-        List<String> lines = Arrays.asList(split);
-
-        return sc.parallelize(lines);
+        //Finally: evaluate the (training) data accuracy in a distributed manner:
+        Evaluation evaluation = sparkNetwork.evaluate(trainingData);
+        System.out.println(evaluation.stats());
     }
 
 }

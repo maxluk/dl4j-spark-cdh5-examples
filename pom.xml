@@ -15,10 +15,10 @@
         <logback.version>1.1.2</logback.version>
         <netty.version>4.0.28.Final</netty.version>
         <lombok.version>1.16.4</lombok.version>
-        <nd4j.version>0.4.0</nd4j.version>
-        <dl4j.version>0.4.0</dl4j.version>
-        <scala.version>2.11.6</scala.version>
-        <scala.binary.version>2.11</scala.binary.version>
+        <nd4j.version>0.4.1-SNAPSHOT</nd4j.version>
+        <dl4j.version>0.4.1-SNAPSHOT</dl4j.version>
+        <scala.version>2.10.6</scala.version>
+        <scala.binary.version>2.10</scala.binary.version>
         <spark.version>1.5.0</spark.version>
         <jcommander.version>1.27</jcommander.version>
     </properties>
@@ -51,6 +51,7 @@
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>1.6</version>
                 <configuration>
+                    <finalName>dl4j-spark</finalName>
                     <createDependencyReducedPom>true</createDependencyReducedPom>
                     <filters>
                         <filter>

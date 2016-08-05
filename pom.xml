@@ -19,7 +19,7 @@
         <dl4j.version>0.4.1-SNAPSHOT</dl4j.version>
         <scala.version>2.10.6</scala.version>
         <scala.binary.version>2.10</scala.binary.version>
-        <spark.version>1.5.0</spark.version>
+        <spark.version>1.6.0</spark.version>
         <jcommander.version>1.27</jcommander.version>
     </properties>
 

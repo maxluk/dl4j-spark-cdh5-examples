@@ -40,7 +40,7 @@ public class MnistExample {
 
         //Create spark context, and load data into memory
         SparkConf sparkConf = new SparkConf();
-        sparkConf.setMaster("local[*]");
+        //sparkConf.setMaster("local[*]");
         sparkConf.setAppName("MNIST");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
 
